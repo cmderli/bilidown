@@ -1,0 +1,4 @@
+bilibili-api-python==14.0.0
+asyncio==3.4.3
+mutagen==1.46.0
+httpx==0.23.3
