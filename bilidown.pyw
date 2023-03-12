@@ -21,8 +21,9 @@ import os
 import requests # Need request to download cover image.
 # import imghdr
 from PIL import Image# Need Pillow to make Music Cover Image.
-import tkinter, tkinter.ttk, tkinter.font
-from tkinter import messagebox, scrolledtext, filedialog
+# import tkinter, tkinter.ttk, tkinter.font
+# from tkinter import messagebox, scrolledtext, filedialog
+import flet as ft
 import cover
 import json
 import threading
@@ -34,6 +35,8 @@ from mutagen.id3 import ID3, APIC
 from mutagen.easyid3 import EasyID3
 # import mutagen.wave
 import traceback
+import hashlib
+import pathlib
 # bv test : BV1sM4y1V7x1
 ILLEGAL_DIR_CHAR = ['<', '|', '>', '\\', '/', ':', '"', '*', '?'] # There is The Illegal Directory Characters.
 # DOWNLOAD_DIR = os.getcwd() # Download Directory here.
@@ -42,28 +45,68 @@ ILLEGAL_DIR_CHAR = ['<', '|', '>', '\\', '/', ':', '"', '*', '?'] # There is The
 # ARTIST_DIVISION_CHAR = '/'
 SUPPORT_AUDIO_FORMAT = ('mp3', 'flac')
 CWD = os.getcwd()
+MAGIC_STRING = 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4MDAgNDAwIj4KICA8cGF0aCBmaWxsPSIjNUJDRUZBIiBkPSJNMCAwaDgwMHY0MDBIMHoiLz4KICA8cGF0aCBmaWxsPSIjRjVBOUI4IiBkPSJNMCA4MGg4MDB2MjQwSDB6Ii8+CiAgPHBhdGggZmlsbD0iI0ZGRiIgZD0iTTAgMTYwaDgwMHY4MEgweiIvPgo8L3N2Zz4='
+badSettingFile = False
 setting = {
+    "language": "zh_CN",
+    "theme_mode": False,
     "DOWNLOAD_DIR": CWD,
     "CACHE_DIR": CWD+"/.bilidown_cache",
+    "cacheAutoDelete": True,
     "FFMPEG": "ffmpeg",
+    "decodeCommand": "{decoder} -i {input} -y -acodec {decodelib} {bitrate} {output}",
+    "mp3Decoder": "libmp3lame -b:a",
+    "flacDecoder": "flac -compression_level",
+    "downloadEngine": "<Built-in>",
+    "downloadEngineCommand": "{downloadEngine} {url} {output}",
     "ARTIST_DIVISION_CHAR": "/",
     "COVER_RES": 1024,
     "UA": "Mozilla/5.0 (X11; Linux x86_64; rv:108.0) Gecko/20100101 Firefox/108.0",
     "FONT": "",
     "DOWNLOAD_CHUNK_SIZE": 1024,
     "DEFAULT_AUDIO_FORMAT": "mp3",
-    "DEFAULT_AUDIO_BITRATE": "320k"
+    "DEFAULT_AUDIO_BITRATE": "320k",
+    "darkMode": False
 }
+def writeSettings(setting):
+    with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
+        jsonString = json.dumps(setting)
+        settingHash = hashlib.sha256(jsonString.encode('utf-8')).hexdigest()
+        settingString = f'{MAGIC_STRING}\n{settingHash}\n{jsonString}'
+        f.write(settingString)
+def readSettings():
+    with open('bilidown.SETTINGS', 'r', encoding='utf-8') as f:
+        jsonString = f.read()
+        jsonStringList = jsonString.split('\n', 2)
+        if len(jsonStringList) != 3:
+            badSettingFile = True
+            print('ERROR: BAD SETTING FILE.')
+            return setting
+        if jsonStringList[0] == MAGIC_STRING:
+            settingHash = hashlib.sha256(jsonStringList[2].encode('utf-8')).hexdigest()
+            if settingHash != jsonStringList[1]:
+                badSettingFile = True
+                print('ERROR: BAD SETTING FILE.')
+                return setting
+            else:
+                settings = json.loads(jsonStringList[2])
+                return settings
+        # print(jsonStringList)
+        #setting = json.loads(jsonString)
 if not(os.path.exists('bilidown.SETTINGS')):
     if not(os.path.exists(setting['CACHE_DIR'])):
         os.mkdir(setting['CACHE_DIR'])
-    with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
-        jsonString = json.dumps(setting)
-        f.write(jsonString)
-with open('bilidown.SETTINGS', 'r', encoding='utf-8') as f:
-    jsonString = f.read()
-    setting = json.loads(jsonString)
-    # print(setting)
+    writeSettings(setting)
+setting = readSettings()
+languages = list()
+for root, dirs, files in os.walk('i18n'):
+    for name in files:
+        # print(name)
+        if name[-5::] == '.json':
+            languages.append(name[:5:])
+# print(languages)
+with open(f'i18n/{setting["language"]}.json', 'r', encoding='utf-8') as f:
+    i18n = json.loads(f.read())
 if not(os.path.exists(setting['CACHE_DIR'])):
     setting['CACHE_DIR'] = CWD+'/.bilidown_cache'
     with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
@@ -93,473 +136,431 @@ else:
         else:
             LICENSE_GPLV3 = readLICENSE_GPLV3
 class bilidownApp:
-    def __init__(self):
+    def __init__(self, page: ft.Page):
         # GUI Interface
         # I DON'T WANT TO WRITE COMMENTS.
         # 我不想写注释了...
-        self.root = tkinter.Tk()
-        self.fontFamilies = tkinter.font.families()
-        # print(len(self.fontFamilies))
-        self.root.title('bilibili音乐下载器-bilidown')
-        self.root.geometry('800x600')
-        self.root_menu = tkinter.Menu(self.root)
-        self.root_menu.add_command(label='设置', command = self.settings)
-        self.root_menu.add_command(label='关于', command = self.about)
-        self.root_menu.add_command(label='第三方库', command = self.otherLibrary)
-        self.root.config(menu = self.root_menu)
-        title = tkinter.Label(self.root, 
-                            text='\nbilibili音乐下载器',
-                            font=(setting["FONT"],40,'normal'))
-        self.textEntry = tkinter.StringVar()
-        self.textEntry.set('在此输入BV号')
-        self.bvEntry = tkinter.Entry(self.root, 
-                                textvariable=self.textEntry, 
-                                font=(setting["FONT"], 
-                                20, 
-                                'normal'))
-        defaultAudioFormat = tkinter.StringVar(value=setting["DEFAULT_AUDIO_FORMAT"])
-        self.formatTitle = tkinter.Label(self.root, 
-                                    text='音乐格式', 
-                                    font=(setting["FONT"], 
-                                    20, 
-                                    'normal'))
-        self.formatMenu = tkinter.ttk.Combobox(self.root, 
-                                               textvariable=defaultAudioFormat, 
-                                               values=('mp3', 'flac'), 
-                                               font=(setting["FONT"],20,'normal'))
-        defaultAudioBitrate = tkinter.StringVar(value=setting["DEFAULT_AUDIO_BITRATE"])
-        bitrateTitle = tkinter.Label(self.root, 
-                                     text='音频质量\nflac请填0 ~ 8压缩等级，\nmp3填码率（例如320k）',
-                                     font=(setting["FONT"],20,'normal'))
-        self.bitrateEntry = tkinter.Entry(self.root, 
-                                          textvariable=defaultAudioBitrate, 
-                                          font=(setting["FONT"], 20, 'normal'))
-        self.okButton = tkinter.Button(self.root, 
-                                text = '下载', 
-                                font = (setting["FONT"], 20, 'normal'), 
-                                command=self.preDownload)
-        title.pack()
-        self.bvEntry.pack()
-        self.formatTitle.pack(pady=10)
-        self.formatMenu.pack()
-        bitrateTitle.pack()
-        self.bitrateEntry.pack()
-        self.okButton.pack()
-        self.root.mainloop()
+        page.title = 'bilidown'
+        page.scroll = 'AUTO'
+        if setting["darkMode"]:
+            page.theme_mode = 'DARK'
+            page.update()
+        else:
+            page.theme_mode = 'LIGHT'
+            page.update()
+        def closeMessage(dialog):
+            dialog.open = False
+            page.update()
+        def showMessage(title, message):
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(title),
+                content=ft.Text(message),
+                actions_alignment=ft.MainAxisAlignment.END,
+                actions=[
+                    ft.TextButton(i18n["ok"], on_click=lambda _:closeMessage(dialog))
+                ]
+            )
+            page.dialog = dialog
+            dialog.open = True
+            page.update()
+        # showMessage('Hello', 'World!')
+        def showSnackBar(message):
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text(message)
+            )
+            page.snack_bar.open = True
+            page.update()
+        def advanceMkdir(path):
+            try:
+                Path = pathlib.Path(path)
+                Path.mkdir(parents=True, exist_ok=True)
+            except:
+                Error = traceback.format_exc()
+                showMessage(title = i18n["error"], message = f'{path} {Error}')
+        def enableSettings(self):
+            # Get settings in setup window and write settings.
+            # global setting
+            language = self.languageMenu.value
+            cache_dir = self.cacheDirEntry.value
+            download_dir = self.downloadDirEntry.value
+            if cache_dir[-1::] == '\\' or cache_dir[-1::] == '/':
+                cache_dir = cache_dir[:-1:]
+            if download_dir[-1::] == '\\' or download_dir[-1::] == '/':
+                download_dir = download_dir[:-1:]
+            advanceMkdir(cache_dir)
+            advanceMkdir(download_dir)
+            if self.darkModeSwitch.value:
+                page.theme_mode = 'DARK'
+                page.update()
+            else:
+                page.theme_mode = 'LIGHT'
+                page.update()
+            try:
+                i18n = json.loads(open(f'i18n/{language}.json', 'r', encoding='utf-8').read())
+                page.update()
+            except:
+                Error = traceback.format_exc()
+                showMessage(title=i18n["error"], message=Error)
+            setting = {
+                "DOWNLOAD_DIR": download_dir,
+                "CACHE_DIR": cache_dir,
+                "language": language,
+                "theme_mode": False,
+                "cacheAutoDelete": self.cacheAutoDeleteButton.value,
+                "FFMPEG": self.decoderBinEntry.value,
+                "decodeCommand": self.decodeCommandEntry.value,
+                "mp3Decoder": self.mp3DecoderEntry.value,
+                "flacDecoder": self.flacDecoderEntry.value,
+                "downloadEngine": self.downloadEngineEntry.value,
+                "downloadEngineCommand": self.downloadEngineCommandEntry.value,
+                "ARTIST_DIVISION_CHAR": self.artistDivisionCharEntry.value,
+                "COVER_RES": int(self.coverResSlider.value),
+                "UA": self.UAEntry.value,
+                "FONT": "",
+                "DOWNLOAD_CHUNK_SIZE": int(self.downloadChunkSizeSlider.value),
+                "DEFAULT_AUDIO_FORMAT": self.defaultAudioFormatEntry.value,
+                "DEFAULT_AUDIO_BITRATE": self.defaultAudioBitrateEntry.value,
+                "darkMode": bool(self.darkModeSwitch.value)
+            }
+            writeSettings(setting)
+            showMessage(i18n["finished"], i18n["writeSettingsFinished"])
+        def settings(self):
+            # self.languageEntry = ft.Dropdown()
+            self.languageMenu = ft.Dropdown(label=i18n["language"],
+                                     value=setting["language"],
+                                     options=list(map(
+                                        ft.dropdown.Option,
+                                        languages
+                                     )))
+            self.darkModeSwitch = ft.Switch(label=i18n["darkMode"], value=setting["darkMode"])
+            self.downloadDirEntry = ft.TextField(label=i18n["downloadDir"], 
+                                                 value=setting["DOWNLOAD_DIR"])
+            self.cacheDirEntry = ft.TextField(label=i18n["cacheDir"], 
+                                              value=setting["CACHE_DIR"])
+            self.cacheAutoDeleteButton = ft.Switch(label=i18n["cacheAutoDelete"], 
+                                                   value=setting["cacheAutoDelete"])
+            self.decoderBinEntry = ft.TextField(label=i18n["decoderBin"], 
+                                                value=setting["FFMPEG"])
+            self.decodeCommandEntry = ft.TextField(label=i18n["decodeCommand"], 
+                                                   value=setting["decodeCommand"])
+            self.mp3DecoderEntry = ft.TextField(label=i18n["mp3Decoder"], 
+                                                value=setting["mp3Decoder"])
+            self.flacDecoderEntry = ft.TextField(label=i18n["flacDecoder"], 
+                                            value=setting["flacDecoder"])
+            self.artistDivisionCharEntry = ft.TextField(label=i18n["artistDivisionChar"], 
+                                                        value=setting["ARTIST_DIVISION_CHAR"])
+            self.coverResText = ft.Text(i18n["coverRes"])
+            self.coverResSlider = ft.Slider(min=64, 
+                                            max=4096, 
+                                            divisions=16, 
+                                            label="{value}px", 
+                                            value=setting["COVER_RES"])
+            self.UAEntry = ft.TextField(label=i18n["UA"], 
+                                            value=setting["UA"])
+            self.downloadChunkSizeText = ft.Text(i18n["downloadChunkSize"])
+            self.downloadChunkSizeSlider = ft.Slider(min=64, 
+                                            max=4096, 
+                                            divisions=16, 
+                                            label="{value}", 
+                                            value=setting["DOWNLOAD_CHUNK_SIZE"])
+            self.defaultAudioFormatEntry = ft.Dropdown(label=i18n["defaultAudioFormat"], 
+                                                        value=setting["DEFAULT_AUDIO_FORMAT"],
+                                                        options=list(map(
+                                                            ft.dropdown.Option,
+                                                            SUPPORT_AUDIO_FORMAT
+                                                        )))
+            self.defaultAudioBitrateEntry = ft.TextField(label=i18n["defaultAudioBitrate"], 
+                                                         value=setting["DEFAULT_AUDIO_BITRATE"])
+            self.downloadEngineEntry = ft.TextField(label=i18n["downloadEngine"], 
+                                                    value=setting["downloadEngine"])
+            self.downloadEngineCommandEntry = ft.TextField(label=i18n["downloadEngineCommand"], 
+                                                    value=setting["downloadEngineCommand"])
+        async def downloadAudio(bv,mode):
+    # asyncio.set_event_loop(eventLoop)
+            try:
+                if setting["downloadEngine"] != "<Built-in>":
+                    downloadCommand = setting["downloadEngineCommand"].replace('{downloadEngine}', setting["downloadEngine"])
+                if (bv[:2:] == 'BV'):
+                    v = video.Video(bvid=bv)
+                elif (bv[:2:] == 'av' or bv[:2:] == 'AV'):
+                    av = int(bv[2::])
+                    v = video.Video(aid=av)
+                info = await v.get_info() # Get Video info.
+                # print(info)
+                with open(f'{setting["CACHE_DIR"]}/bilidown.video.info.{bv}.json', 'w+') as infoFile:
+                    infoJsonString = json.dumps(info)
+                    infoFile.write(infoJsonString)
+                releaseYear = time.localtime(info["ctime"]).tm_year
+                releaseTime = time.localtime(info["ctime"])
+                releaseDate = time.strftime('%Y/%m/%d', releaseTime)
+                pic_url = info['pic'] # Cover picture URL.
+                header = {"User-Agent": setting['UA']}
+                coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
+                # print(r.content)
+                with open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}', 'wb+') as file: # Write Cover Image to cache.
+                    file.write(coverpic.content)
+                cover.cover(bv, 
+                            setting['COVER_RES'], 
+                            setting['CACHE_DIR']) # Use cover.py to generate cover image.
+                # print(info)
+                # Artists
+                if 'staff' in info:
+                    Staff = info['staff'] # Staff
+                    Artists = ""
+                    for artist in Staff:
+                        artistName = artist['name']
+                        Artists += artistName + setting['ARTIST_DIVISION_CHAR']
+                    Artists = Artists[:len(setting['ARTIST_DIVISION_CHAR']) * -1:]
+                    # print(Artists)
+                else:
+                    Artists = info['owner']['name']
+                url = await v.get_download_url(0) # Download url
+                audio_name = str(info['title']) # Audio File Name.
+                audio_title = audio_name # Audio Title.
+                if "ugc_season" in info:
+                    musicAlbum = info["ugc_season"]["title"]
+                else:
+                    musicAlbum = audio_title
+                # global ILLEGAL_DIR_CHAR
+                for char in ILLEGAL_DIR_CHAR:
+                    audio_name = audio_name.replace(char, '_') # Replace illegal characters.
+                if setting["downloadEngine"] != "<Built-in>":
+                    download_dir = f'{setting["DOWNLOAD_DIR"]}/{audio_name}'
+                    audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
+                    command = downloadCommand.replace('{url}', audio_url).replace('{output}', download_dir)
+                    with os.popen(command):
+                        pass
+                else:
+                    async with httpx.AsyncClient(headers=HEADERS) as sess:
+                        audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
+                        resp = await sess.get(audio_url)
+                        length = resp.headers.get('content-length') # Audio file length.
+                        # Download audio.
+                        with open(f'{setting["CACHE_DIR"]}/{audio_name}.m4s', 'wb') as f: 
+                            process = 0
+                            for chunk in resp.iter_bytes(1024):
+                                if not chunk:
+                                    break
+                                process += len(chunk)
+                                f.write(chunk)
+                if os.path.exists(f'{setting["CACHE_DIR"]}/{audio_name}.m4s'):
+                    if mode[0] == 'mp3':
+                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{audio_name}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"')
+                        ffmpeg_command = ffmpeg_command.replace('{decodelib}', setting["mp3Decoder"])
+                        # ffmpeg_command = f'{setting["FFMPEG"]} -i "{setting["CACHE_DIR"]}/{audio_name}.m4s" -y -acodec libmp3lame -b:a {mode[1]} "{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"'
+                    elif mode[0] == 'flac':
+                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{audio_name}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.flac"')
+                        ffmpeg_command = ffmpeg_command.replace('{decodelib}', setting["flacDecoder"])
+                    print(ffmpeg_command)
+                    with os.popen(ffmpeg_command):# Use ffmpeg to transcoding audio."""
+                        pass
+                    # Edit by EasyID3.
+                    if mode[0] == 'mp3':
+                        musicFile = EasyID3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
+                        musicFile["title"] = audio_title
+                        musicFile["artist"] = Artists
+                        musicFile["website"] = f'https://www.bilibili.com/video/{bv}'
+                        musicFile["date"] = releaseDate
+                        musicFile["album"] = musicAlbum
+                    if mode[0] == 'flac':
+                        musicFile = mutagen.flac.FLAC(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
+                        musicFile.tags = mutagen.id3.ID3()
+                        musicFile.save()
+                        musicFile = mutagen.File(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', easy = True)
+                        # musicFile.add_tags()
+                        musicFile["title"] = audio_title
+                        musicFile["artist"] = Artists
+                        musicFile["website"] = f'https://www.bilibili.com/video/{bv}'
+                        musicFile["date"] = releaseDate
+                        musicFile["album"] = musicAlbum
+                        # print(f'musicFile: {musicFile}')
+                    # musicFile.save()
+                    musicFile.save()
+                    coverFile = open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg', 'rb').read()
+                    if mode[0] == 'mp3':
+                        musicFileMP3 = mutagen.mp3.MP3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', ID3 = ID3)
+                        musicFileMP3.tags.add(APIC(encoding = 3,
+                                                mime = 'image/jpg',
+                                                type = 3,
+                                                desc = u'Cover',
+                                                data = coverFile))
+                        musicFileMP3.save(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
+                    if mode[0] == 'flac':
+                        musicFileFLAC = mutagen.File(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
+                        flacCoverImage = mutagen.flac.Picture()
+                        flacCoverImage.type = 3
+                        flacCoverImage.desc = 'front cover'
+                        flacCoverImage.data = coverFile
+                        musicFileFLAC.add_picture(flacCoverImage)
+                        musicFileFLAC.save()
+                    # Delete Cache.
+                    # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}') 
+                    # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg')
+                    # os.remove(f'{setting["CACHE_DIR"]}/{audio_name}.m4s')
+                    showSnackBar(message = f'{bv} {audio_name} {i18n["downloadFinished"]}')
+                    return 0
+                    # os._exit(0)
+                else:
+                    raise OSError(f"File {setting['DOWNLOAD_DIR']}/{audio_name}.m4s does not exists.")
+            except:
+                Error = traceback.format_exc()
+                showMessage(title = i18n["error"], message = f'{bv} {i18n["downloadFailed"]} {Error}')
+                print(f'{bv} 下载失败。\n错误信息：{Error}')
+                return 1
+                # os._exit(1)
+        def preDownload(self):
+        # global bvEntry, formatMenu, bitrateEntry
+            bv = str(self.bvEntry.value)
+            audio_format = str(self.formatMenu.value)
+            bit_rate = str(self.bitrateEntry.value)
+            if bv == '' or not(bv[:2:] == 'BV' or bv[:2:] == 'av' or bv[:2:] == 'AV'):
+                showMessage(title=i18n["error"], message=f'{i18n["invalidBV"]} {bv}')
+                return 0
+            showSnackBar(f'{i18n["nowDownloading"]} {bv}')
+            downloadCoroutine = downloadAudio(bv, (audio_format, bit_rate))
+            newLoop = asyncio.new_event_loop()
+            lockThread = threading.Thread(target=self.setEventLoop, args=(newLoop, ))
+            lockThread.start()
+            asyncio.run_coroutine_threadsafe(downloadCoroutine, newLoop)
+        self.mainPage()
+        self.otherLibrary()
+        settings(self)
+        # self.about()
+        self.titleImage = ft.Image(
+                src='bilidown.svg',
+                width=200,
+                height=200,
+                fit=ft.ImageFit.CONTAIN
+        )
+        self.MainPage = ft.View(
+            "/",
+            [
+                ft.AppBar(
+                    leading=self.titleImage,
+                    leading_width=40,
+                    title=ft.Text(i18n["name"]),
+                    actions=[
+                        ft.IconButton(
+                            icon=ft.icons.SETTINGS,
+                            tooltip=i18n["settings"],
+                            on_click=lambda _:page.go('/settings')
+                        ),
+                        ft.PopupMenuButton(
+                            items=[
+                                ft.PopupMenuItem(icon=ft.icons.INFO, 
+                                                text=i18n["about"],
+                                                on_click=lambda _:page.go('/about')),
+                                ft.PopupMenuItem(text=i18n["otherLib"],
+                                                on_click=lambda _:page.go('/otherlib'))
+                            ]
+                        ),
+                    ]
+                ),
+                self.bvEntry,
+                self.formatMenu,
+                self.bitrateEntry,
+                ft.FilledButton(text=i18n["ok"], on_click=lambda _:preDownload(self))
+            ],
+            scroll='AUTO'
+        )
+        self.AboutPage = ft.View(
+            "/about",
+            [
+                ft.AppBar(
+                    title=ft.Text(i18n["about"])
+                ),
+                ft.Text(
+                    f'bilidown\n{i18n["copyright"]}'
+                ),
+                ft.Text(
+                    LICENSE_GPLV3
+                )
+            ],
+            scroll='AUTO'
+        )
+        self.otherLibPage = ft.View(
+            "/otherlib",
+            [
+                ft.AppBar(
+                    title=ft.Text(i18n["otherLib"])
+                ),
+                ft.Text(
+                    self.otherLibLicenseText
+                )
+            ],
+            scroll='AUTO'
+        )
+        self.settingPage = ft.View(
+            "/settings",
+            [
+                ft.AppBar(
+                    title=ft.Text(i18n["settings"])
+                ),
+                self.languageMenu,
+                self.darkModeSwitch,
+                self.downloadDirEntry,
+                self.cacheDirEntry,
+                self.cacheAutoDeleteButton,
+                self.decoderBinEntry,
+                self.decodeCommandEntry,
+                self.mp3DecoderEntry,
+                self.flacDecoderEntry,
+                self.artistDivisionCharEntry,
+                self.coverResText,
+                self.coverResSlider,
+                self.UAEntry,
+                self.downloadChunkSizeText,
+                self.downloadChunkSizeSlider,
+                self.defaultAudioFormatEntry,
+                self.defaultAudioBitrateEntry,
+                self.downloadEngineEntry,
+                self.downloadEngineCommandEntry,
+                ft.FilledButton(
+                    text=i18n["ok"], 
+                    on_click=lambda _:enableSettings(self)
+                )
+            ],
+            scroll='AUTO'
+        )
+        def changeRoute(route):
+            page.views.clear()
+            page.views.append(self.MainPage)
+            if page.route == '/about':
+                page.views.append(self.AboutPage)
+            if page.route == '/otherlib':
+                page.views.append(self.otherLibPage)
+            if page.route == '/settings':
+                page.views.append(self.settingPage)
+            page.update()
+        def viewPop(view):
+            page.views.pop()
+            topView = page.views[-1]
+            page.go(topView.route)
+        page.on_route_change = changeRoute
+        page.on_view_pop = viewPop
+        page.go(page.route)
+    def mainPage(self):
+        # titleContainer = ft.Container()
+        self.bvEntry = ft.TextField(label=i18n["bvEntry"])
+        self.formatMenu = ft.Dropdown(label=i18n["audioFormat"],
+                                     value=setting["DEFAULT_AUDIO_FORMAT"],
+                                     options=list(map(
+                                        ft.dropdown.Option,
+                                        SUPPORT_AUDIO_FORMAT
+                                     )))
+        self.bitrateEntry = ft.TextField(label=i18n["audioBitrate"],
+                                         value=setting["DEFAULT_AUDIO_BITRATE"])
     def setEventLoop(self, eventLoop):
         self.eventLoop = eventLoop
         asyncio.set_event_loop(self.eventLoop)
         self.eventLoop.run_forever()
-    def preDownload(self):
-        # global bvEntry, formatMenu, bitrateEntry
-        bv = str(self.bvEntry.get())
-        audio_format = str(self.formatMenu.get())
-        bit_rate = str(self.bitrateEntry.get())
-
-        if bv == '' or bv == '在此输入BV号' or not(bv[:2:] == 'BV' or bv[:2:] == 'av'):
-            messagebox.showerror(title='错误', message=f'无效的bv号 {bv}')
-            return 0
-        if audio_format not in SUPPORT_AUDIO_FORMAT:
-            messagebox.showerror(title='错误', message=f'不支持的文件格式 {audio_format}')
-            return 0
-        if audio_format == 'mp3':
-            if bit_rate[-1::] != 'k':
-                messagebox.showerror(title='错误', message=f'不支持的码率 {bit_rate}')
-                return 0
-            if int(bit_rate[:-1:]) > 320 or int(bit_rate[:-1:]) < 32:
-                messagebox.showerror(title='错误', message=f'不支持的码率 {bit_rate}')
-                return 0
-        elif audio_format == 'flac':
-            if len(bit_rate) != 1:
-                messagebox.showerror(title='错误', message=f'不支持的压缩等级 {bit_rate}')
-                return 0
-            if bit_rate == '9':
-                messagebox.showerror(title='错误', message=f'不支持的压缩等级 {bit_rate}')
-                return 0
-        # Download(bv, (audio_format, bit_rate))
-        downloadCoroutine = self.downloadAudio(bv, (audio_format, bit_rate))
-        newLoop = asyncio.new_event_loop()
-        lockThread = threading.Thread(target=self.setEventLoop, args=(newLoop, ))
-        lockThread.start()
-        asyncio.run_coroutine_threadsafe(downloadCoroutine, newLoop)
-        # asyncio.get_event_loop().run_until_complete(downloadAudio(bv, (audio_format, bit_rate)))
-    async def downloadAudio(self, bv,mode):
-    # asyncio.set_event_loop(eventLoop)
-        try:
-            if (bv[:2:] == 'BV'):
-                v = video.Video(bvid=bv)
-            elif (bv[:2:] == 'av'):
-                av = int(bv[2::])
-                v = video.Video(aid=av)
-            info = await v.get_info() # Get Video info.
-            # print(info)
-            with open(f'{setting["CACHE_DIR"]}/bilidown.video.info.{bv}.json', 'w+') as infoFile:
-                infoJsonString = json.dumps(info)
-                infoFile.write(infoJsonString)
-            releaseYear = time.localtime(info["ctime"]).tm_year
-            releaseTime = time.localtime(info["ctime"])
-            releaseDate = time.strftime('%Y/%m/%d', releaseTime)
-            pic_url = info['pic'] # Cover picture URL.
-            header = {"User-Agent": setting['UA']}
-            coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
-            # print(r.content)
-            with open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}', 'wb+') as file: # Write Cover Image to cache.
-                file.write(coverpic.content)
-            cover.cover(bv, 
-                        setting['COVER_RES'], 
-                        setting['CACHE_DIR']) # Use cover.py to generate cover image.
-            # print(info)
-            # Artists
-            if 'staff' in info:
-                Staff = info['staff'] # Staff
-                Artists = ""
-                for artist in Staff:
-                    artistName = artist['name']
-                    Artists += artistName + setting['ARTIST_DIVISION_CHAR']
-                Artists = Artists[:len(setting['ARTIST_DIVISION_CHAR']) * -1:]
-                # print(Artists)
-            else:
-                Artists = info['owner']['name']
-            url = await v.get_download_url(0) # Download url
-            audio_name = str(info['title']) # Audio File Name.
-            audio_title = audio_name # Audio Title.
-            if "ugc_season" in info:
-                musicAlbum = info["ugc_season"]["title"]
-            else:
-                musicAlbum = audio_title
-            # global ILLEGAL_DIR_CHAR
-            for char in ILLEGAL_DIR_CHAR:
-                audio_name = audio_name.replace(char, '_') # Replace illegal characters.
-            async with httpx.AsyncClient(headers=HEADERS) as sess:
-                audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
-                resp = await sess.get(audio_url)
-                length = resp.headers.get('content-length') # Audio file length.
-                # Download audio.
-                with open(f'{setting["CACHE_DIR"]}/{audio_name}.m4s', 'wb') as f: 
-                    process = 0
-                    for chunk in resp.iter_bytes(1024):
-                        if not chunk:
-                            break
-                        process += len(chunk)
-                        f.write(chunk)
-            if os.path.exists(f'{setting["CACHE_DIR"]}/{audio_name}.m4s'):
-                if mode[0] == 'mp3':
-                    ffmpeg_command = f'{setting["FFMPEG"]} -i "{setting["CACHE_DIR"]}/{audio_name}.m4s" -y -acodec libmp3lame -b:a {mode[1]} "{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"'
-                elif mode[0] == 'flac':
-                    ffmpeg_command = f'{setting["FFMPEG"]} -i "{setting["CACHE_DIR"]}/{audio_name}.m4s" -y -acodec flac -compression_level {mode[1]} "{setting["DOWNLOAD_DIR"]}/{audio_name}.flac"'
-                with os.popen(ffmpeg_command):# Use ffmpeg to transcoding audio."""
-                    pass
-                # Edit by EasyID3.
-                if mode[0] == 'mp3':
-                    musicFile = EasyID3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
-                    musicFile["title"] = audio_title
-                    musicFile["artist"] = Artists
-                    musicFile["website"] = f'https://www.bilibili.com/video/{bv}'
-                    musicFile["date"] = releaseDate
-                    musicFile["album"] = musicAlbum
-                if mode[0] == 'flac':
-                    musicFile = mutagen.flac.FLAC(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
-                    musicFile.tags = mutagen.id3.ID3()
-                    musicFile.save()
-                    musicFile = mutagen.File(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', easy = True)
-                    # musicFile.add_tags()
-                    musicFile["title"] = audio_title
-                    musicFile["artist"] = Artists
-                    musicFile["website"] = f'https://www.bilibili.com/video/{bv}'
-                    musicFile["date"] = releaseDate
-                    musicFile["album"] = musicAlbum
-                    # print(f'musicFile: {musicFile}')
-                # musicFile.save()
-                musicFile.save()
-                coverFile = open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg', 'rb').read()
-                if mode[0] == 'mp3':
-                    musicFileMP3 = mutagen.mp3.MP3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', ID3 = ID3)
-                    musicFileMP3.tags.add(APIC(encoding = 3,
-                                               mime = 'image/jpg',
-                                               type = 3,
-                                               desc = u'Cover',
-                                               data = coverFile))
-                    musicFileMP3.save(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
-                if mode[0] == 'flac':
-                    musicFileFLAC = mutagen.File(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}')
-                    flacCoverImage = mutagen.flac.Picture()
-                    flacCoverImage.type = 3
-                    flacCoverImage.desc = 'front cover'
-                    flacCoverImage.data = coverFile
-                    musicFileFLAC.add_picture(flacCoverImage)
-                    musicFileFLAC.save()
-                # Delete Cache.
-                # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}') 
-                # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg')
-                # os.remove(f'{setting["CACHE_DIR"]}/{audio_name}.m4s')
-                messagebox.showinfo(title = '信息', message = f'{bv} {audio_name} 下载成功。')
-                return 0
-                # os._exit(0)
-            else:
-                raise OSError(f"File {setting['DOWNLOAD_DIR']}/{audio_name}.m4s does not exists.")
-        except:
-            Error = traceback.format_exc()
-            messagebox.showerror(title = '错误', message = f'{bv} 下载失败。\n错误信息：{Error}')
-            print(f'{bv} 下载失败。\n错误信息：{Error}')
-            return 1
-            # os._exit(1)
-    def downloadDirSet(self):
-        dirname = filedialog.askdirectory()
-        print(dirname)
-        if dirname != '':
-            self.DownloadDir.set(value=dirname)
-    def cacheDirSet(self):
-        dirname = filedialog.askdirectory()
-        print(dirname)
-        if dirname != '':
-            self.CacheDir.set(value=dirname)
-    def settings(self):
-        # global self.setting_win
-        self.setting_win = tkinter.Toplevel()
-        self.setting_win.title('设置')
-        self.setting_win.geometry('400x800')
-        global setting
-        downloadDirTitle = tkinter.Label(self.setting_win, 
-                                        text='下载目录', 
-                                        font=(setting["FONT"], 
-                                        15, 
-                                        'normal'))
-        downloadDirFrame = tkinter.Frame(self.setting_win)
-        downloadDirSetButton = tkinter.Button(downloadDirFrame,text='选择', 
-                                              font=(setting["FONT"], 
-                                              15, 
-                                              'normal'),
-                                              command=self.downloadDirSet)
-        self.DownloadDir = tkinter.StringVar(value=setting['DOWNLOAD_DIR'])
-        cacheDirTitle = tkinter.Label(self.setting_win, 
-                                    text='缓存文件目录', 
-                                    font=(setting["FONT"], 
-                                    15, 
-                                    'normal'))
-        cacheDirFrame = tkinter.Frame(self.setting_win)
-        self.CacheDir = tkinter.StringVar(value=setting['CACHE_DIR']) # CACHE_DIR
-        # global cacheDirEntry, downloadDirEntry, ffmpegEntry, ADCEntry, CREntry, UAEntry, FontEntry, downloadChunkSizeEntry
-        self.cacheDirEntry = tkinter.Entry(cacheDirFrame, 
-                                    textvariable=self.CacheDir, 
-                                    font=(setting["FONT"], 
-                                    15, 
-                                    'normal'))
-        cacheDirSetButton = tkinter.Button(cacheDirFrame,text='选择', 
-                                              font=(setting["FONT"], 
-                                              15, 
-                                              'normal'),
-                                              command=self.cacheDirSet)
-        self.downloadDirEntry = tkinter.Entry(downloadDirFrame, 
-                                        textvariable=self.DownloadDir, 
-                                        font=(setting["FONT"], 
-                                        15, 
-                                        'normal'))
-        ffmpegTitle = tkinter.Label(self.setting_win, 
-                                    text='FFMPEG', 
-                                    font=(setting["FONT"], 
-                                    15, 
-                                    'normal'))
-        ffmpeg = tkinter.StringVar(value=setting['FFMPEG'])
-        self.ffmpegEntry = tkinter.Entry(self.setting_win, 
-                                    textvariable=ffmpeg, 
-                                    font=(setting["FONT"], 
-                                    15, 
-                                    'normal'))
-        ADCTitle = tkinter.Label(self.setting_win, 
-                                text='艺术家分隔符', 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal')) # "ARTIST_DIVISION_CHAR"
-        aDC = tkinter.StringVar(value=setting['ARTIST_DIVISION_CHAR'])
-        self.ADCEntry = tkinter.Entry(self.setting_win, 
-                                textvariable=aDC, 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal'))
-        CRTitle = tkinter.Label(self.setting_win, 
-                                text='封面长宽（像素）', 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal')) # "COVER_RES"
-        cR = tkinter.StringVar(value=setting['COVER_RES'])
-        self.CREntry = tkinter.Entry(self.setting_win, 
-                                textvariable=cR, 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal'))
-        UATitle = tkinter.Label(self.setting_win, 
-                                text='UA', 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal')) # "UA"
-        uA = tkinter.StringVar(value=setting['UA'])
-        self.UAEntry = tkinter.Entry(self.setting_win, 
-                                textvariable=uA, 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal'))
-        FontTitle = tkinter.Label(self.setting_win, 
-                                text='字体', 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal')) # "UA"
-        # UIFont = tkinter.StringVar(value=setting["FONT"])
-        # print(setting["FONT"])
-        # print(self.fontFamilies)
-        # print(type(self.fontFamilies))
-        self.FontEntry = tkinter.ttk.Combobox(self.setting_win, 
-                                              # textvariable=UIFont, 
-                                              values=self.fontFamilies,
-                                              font=(setting["FONT"], 
-                                              15, 
-                                              'normal'))
-        self.FontEntry.set(setting["FONT"])
-        downloadChunkSize = tkinter.StringVar(value=setting["DOWNLOAD_CHUNK_SIZE"]) # "DOWNLOAD_CHUNK_SIZE"
-        downloadChunkSizeTitle = tkinter.Label(self.setting_win, 
-                                            text='下载块大小(字节)',
-                                            font=(setting["FONT"], 15, 'normal'))
-        self.downloadChunkSizeEntry = tkinter.Entry(self.setting_win, 
-                                            textvariable=downloadChunkSize, 
-                                            font=(setting["FONT"], 15, 'normal'))
-        defaultAudioFormat = tkinter.StringVar(value=setting["DEFAULT_AUDIO_FORMAT"]) # "DEFAULT_AUDIO_FORMAT"
-        defaultAudioFormatTitle = tkinter.Label(self.setting_win, 
-                                            text='默认音频文件扩展名',
-                                            font=(setting["FONT"], 15, 'normal'))
-        self.defaultAudioFormatEntry = tkinter.Entry(self.setting_win, 
-                                            textvariable=defaultAudioFormat, 
-                                            font=(setting["FONT"], 15, 'normal'))
-        defaultAudioBitrate = tkinter.StringVar(value=setting["DEFAULT_AUDIO_BITRATE"]) # "DEFAULT_AUDIO_BITRATE" Default Audio Bitrate.
-        defaultAudioBitrateTitle = tkinter.Label(self.setting_win, 
-                                            text='默认码率或压缩等级',
-                                            font=(setting["FONT"], 15, 'normal'))
-        self.defaultAudioBitrateEntry = tkinter.Entry(self.setting_win, 
-                                            textvariable=defaultAudioBitrate, 
-                                            font=(setting["FONT"], 15, 'normal'))
-        OKButton = tkinter.Button(self.setting_win, 
-                                text='确定', 
-                                font=(setting["FONT"], 
-                                15, 
-                                'normal'), 
-                                command=self.enableSettings)
-        downloadDirTitle.pack()
-        downloadDirFrame.pack()
-        self.downloadDirEntry.pack(side='left')
-        downloadDirSetButton.pack(side='right')
-        cacheDirTitle.pack()
-        # self.cacheDirEntry.pack()
-        cacheDirFrame.pack()
-        self.cacheDirEntry.pack(side='left')
-        cacheDirSetButton.pack(side='right')
-        ffmpegTitle.pack()
-        self.ffmpegEntry.pack()
-        ADCTitle.pack()
-        self.ADCEntry.pack()
-        CRTitle.pack()
-        self.CREntry.pack()
-        UATitle.pack()
-        self.UAEntry.pack()
-        FontTitle.pack()
-        self.FontEntry.pack()
-        downloadChunkSizeTitle.pack()
-        self.downloadChunkSizeEntry.pack()
-        defaultAudioFormatTitle.pack()
-        self.defaultAudioFormatEntry.pack()
-        defaultAudioBitrateTitle.pack()
-        self.defaultAudioBitrateEntry.pack()
-        OKButton.pack()
-    def enableSettings(self):
-        # Get settings in setup window and write settings.
-        # global setting
-        cache_dir = self.cacheDirEntry.get()
-        download_dir = self.downloadDirEntry.get()
-        if cache_dir[-1::] == '\\' or cache_dir[-1::] == '/':
-            cache_dir = cache_dir[:-1:]
-        if download_dir[-1::] == '\\' or download_dir[-1::] == '/':
-            download_dir = download_dir[:-1:]
-        if not(os.path.exists(cache_dir)):
-            try:
-                os.mkdir(cache_dir)
-            except:
-                messagebox.showerror(title='错误', message=f'创建目录 {cache_dir} 失败。')
-                return 0
-        if not(os.path.exists(download_dir)):
-            try:
-                os.mkdir(download_dir)
-            except:
-                messagebox.showerror(title='错误', message=f'创建目录 {download_dir} 失败。')
-                return 0
-        if str(self.downloadChunkSizeEntry.get()).isdecimal():
-            downloadChunkSize = int(self.downloadChunkSizeEntry.get())
-            if downloadChunkSize <= 0:
-                messagebox.showerror(title='错误', 
-                                    message=f'下载块大小 {downloadChunkSize} 小于等于0。')
-                return 0
-        else:
-            messagebox.showerror(title='错误', 
-                                message=f'下载块大小 {self.downloadChunkSizeEntry.get()} 不是十位整数数字。')
-        if self.defaultAudioFormatEntry.get() in SUPPORT_AUDIO_FORMAT:
-            if self.defaultAudioFormatEntry.get() == 'mp3':
-                if self.defaultAudioBitrateEntry.get()[-1::] != 'k':
-                    messagebox.showerror(title='错误', message=f'不支持的码率 {self.defaultAudioBitrateEntry.get()}')
-                    return 0
-                if int(self.defaultAudioBitrateEntry.get()[:-1:]) > 320 or int(self.defaultAudioBitrateEntry.get()[:-1:]) < 32:
-                    messagebox.showerror(title='错误', message=f'不支持的码率 {self.defaultAudioBitrateEntry.get()}')
-                    return 0
-                defaultAudioFormat = self.defaultAudioFormatEntry.get()
-                defaultAudioBitrate = self.defaultAudioBitrateEntry.get()
-            elif self.defaultAudioFormatEntry.get() == 'flac':
-                if len(self.defaultAudioBitrateEntry.get()) != 1:
-                    messagebox.showerror(title='错误', message=f'不支持的压缩等级 {self.defaultAudioBitrateEntry.get()}')
-                    return 0
-                if self.defaultAudioBitrateEntry.get() == '9':
-                    messagebox.showerror(title='错误', message=f'不支持的压缩等级 {self.defaultAudioBitrateEntry.get()}')
-                    return 0
-                defaultAudioFormat = self.defaultAudioFormatEntry.get()
-                defaultAudioBitrate = self.defaultAudioBitrateEntry.get()
-        else:
-            messagebox.showerror(title='错误', message=f'不支持的格式 {self.defaultAudioFormatEntry.get()}')
-            return 0
-        setting = {
-            "DOWNLOAD_DIR": download_dir,
-            "CACHE_DIR": cache_dir,
-            "FFMPEG": self.ffmpegEntry.get(),
-            "ARTIST_DIVISION_CHAR": self.ADCEntry.get(),
-            "COVER_RES": int(self.CREntry.get()),
-            "UA": self.UAEntry.get(),
-            "FONT": self.FontEntry.get(), 
-            "DOWNLOAD_CHUNK_SIZE": downloadChunkSize,
-            "DEFAULT_AUDIO_FORMAT": defaultAudioFormat,
-            "DEFAULT_AUDIO_BITRATE": defaultAudioBitrate
-        }
-        with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
-            jsonString = json.dumps(setting)
-            f.write(jsonString)
-        self.setting_win.destroy()
-    def about(self):
-        about_win = tkinter.Tk()
-        about_win.title('关于')
-        about_win.geometry('640x480')
-        _copyright = tkinter.Label(about_win, 
-                                text=VERSION+COPYRIGHT, 
-                                justify='left', 
-                                font=(setting["FONT"], 10, 'normal'))
-        _gplv3 = scrolledtext.ScrolledText(about_win)
-        _gplv3.insert('0.0', LICENSE_GPLV3)
-        _copyright.pack()
-        _gplv3.pack(fill=tkinter.BOTH,expand=True)
-        _gplv3.config(state=tkinter.DISABLED)
     def otherLibrary(self):
-        about_win = tkinter.Tk()
-        about_win.title('第三方库')
-        about_win.geometry('800x600')
         if os.path.exists('LICENSE_OTHER_LIBRARY'):
-            Text = open('LICENSE_OTHER_LIBRARY', 'r', encoding='utf-8').read()
+            self.otherLibLicenseText = open('LICENSE_OTHER_LIBRARY', 'r', encoding='utf-8').read()
         else:
-            Text = '加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。'
-        text = scrolledtext.ScrolledText(about_win)
-        text.insert('0.0', Text)
-        text.pack(fill=tkinter.BOTH,expand=True)
-        text.config(state=tkinter.DISABLED)
+            self.otherLibLicenseText = '加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。'
 if __name__ == '__main__':
-    GUIForm = bilidownApp()
+    # GUIForm = bilidownApp()
+    ft.app(target=bilidownApp)
     #bv = input("bvid: ") # Input Bvid.
