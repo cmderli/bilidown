@@ -1,8 +1,8 @@
 # ############################################################# 
-# Bilidown Main                                                 
+# BiliMusic Main                                                 
 # Copyright (C) 2023 cmderli. This program is a free software.
 # #############################################################
-VERSION = 'bilidown v0.1'
+VERSION = 'bilimusic v0.1'
 COPYRIGHT = """
 
 版权所有 (C) 2023 程序猿李某人(cmderli)
@@ -15,43 +15,36 @@ COPYRIGHT = """
 """
 import time
 import asyncio
-from bilibili_api import video, Credential, HEADERS # Need bilibili-api to get Video Info and download Audio.
+from bilibili_api import video, Credential, HEADERS
 import httpx
 import os
-import requests # Need request to download cover image.
-# import imghdr
-from PIL import Image# Need Pillow to make Music Cover Image.
-# import tkinter, tkinter.ttk, tkinter.font
-# from tkinter import messagebox, scrolledtext, filedialog
+import requests
+from PIL import Image
 import flet as ft
 import cover
 import json
 import threading
-import mutagen # Needs mutagen to edit music's id3 info.
+import mutagen
 import mutagen.flac
 import mutagen.mp3
 import mutagen.id3
 from mutagen.id3 import ID3, APIC
 from mutagen.easyid3 import EasyID3
-# import mutagen.wave
 import traceback
 import hashlib
 import pathlib
-# bv test : BV1sM4y1V7x1
+import bilimusic_i18n
+import bilimusic_data
 ILLEGAL_DIR_CHAR = ['<', '|', '>', '\\', '/', ':', '"', '*', '?'] # There is The Illegal Directory Characters.
-# DOWNLOAD_DIR = os.getcwd() # Download Directory here.
-# FFMPEG = 'ffmpeg' # ffmpeg here 
-# HEADER = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:108.0) Gecko/20100101 Firefox/108.0"} # User-Agent Here.
-# ARTIST_DIVISION_CHAR = '/'
 SUPPORT_AUDIO_FORMAT = ('mp3', 'flac')
 CWD = os.getcwd()
-MAGIC_STRING = 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4MDAgNDAwIj4KICA8cGF0aCBmaWxsPSIjNUJDRUZBIiBkPSJNMCAwaDgwMHY0MDBIMHoiLz4KICA8cGF0aCBmaWxsPSIjRjVBOUI4IiBkPSJNMCA4MGg4MDB2MjQwSDB6Ii8+CiAgPHBhdGggZmlsbD0iI0ZGRiIgZD0iTTAgMTYwaDgwMHY4MEgweiIvPgo8L3N2Zz4='
+MAGIC_STRING = '6L+Z6YeM5LuA5LmI5Lmf5rKh5pyJ'
 badSettingFile = False
 setting = {
     "language": "zh_CN",
     "theme_mode": False,
     "DOWNLOAD_DIR": CWD,
-    "CACHE_DIR": CWD+"/.bilidown_cache",
+    "CACHE_DIR": CWD+"/.bilimusic_cache",
     "cacheAutoDelete": True,
     "FFMPEG": "ffmpeg",
     "decodeCommand": "{decoder} -i {input} -y -acodec {decodelib} {bitrate} {output}",
@@ -61,7 +54,7 @@ setting = {
     "downloadEngineCommand": "{downloadEngine} {url} {output}",
     "ARTIST_DIVISION_CHAR": "/",
     "COVER_RES": 1024,
-    "UA": "Mozilla/5.0 (X11; Linux x86_64; rv:108.0) Gecko/20100101 Firefox/108.0",
+    "UA": "Mozilla/5.0",
     "FONT": "",
     "DOWNLOAD_CHUNK_SIZE": 1024,
     "DEFAULT_AUDIO_FORMAT": "mp3",
@@ -69,13 +62,13 @@ setting = {
     "darkMode": False
 }
 def writeSettings(setting):
-    with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
+    with open('bilimusic.SETTINGS', 'w+', encoding='utf-8') as f:
         jsonString = json.dumps(setting)
         settingHash = hashlib.sha256(jsonString.encode('utf-8')).hexdigest()
         settingString = f'{MAGIC_STRING}\n{settingHash}\n{jsonString}'
         f.write(settingString)
 def readSettings():
-    with open('bilidown.SETTINGS', 'r', encoding='utf-8') as f:
+    with open('bilimusic.SETTINGS', 'r', encoding='utf-8') as f:
         jsonString = f.read()
         jsonStringList = jsonString.split('\n', 2)
         if len(jsonStringList) != 3:
@@ -93,54 +86,54 @@ def readSettings():
                 return settings
         # print(jsonStringList)
         #setting = json.loads(jsonString)
-if not(os.path.exists('bilidown.SETTINGS')):
+if not(os.path.exists('bilimusic.SETTINGS')):
     if not(os.path.exists(setting['CACHE_DIR'])):
         os.mkdir(setting['CACHE_DIR'])
     writeSettings(setting)
 setting = readSettings()
 languages = list()
-for root, dirs, files in os.walk('i18n'):
-    for name in files:
-        # print(name)
-        if name[-5::] == '.json':
-            languages.append(name[:5:])
+lang_dict_unreversed = bilimusic_i18n.getI18nListDict()
+lang_dict = dict()
+for lang_name in lang_dict_unreversed:
+    lang_dict[lang_dict_unreversed[lang_name]] = lang_name
+    languages.append(lang_dict_unreversed[lang_name])
 # print(languages)
-with open(f'i18n/{setting["language"]}.json', 'r', encoding='utf-8') as f:
-    i18n = json.loads(f.read())
+i18n = bilimusic_i18n.getI18nDict()
 if not(os.path.exists(setting['CACHE_DIR'])):
-    setting['CACHE_DIR'] = CWD+'/.bilidown_cache'
-    with open('bilidown.SETTINGS', 'w+', encoding='utf-8') as f:
+    setting['CACHE_DIR'] = CWD+'/.bilimusic_cache'
+    with open('bilimusic.SETTINGS', 'w+', encoding='utf-8') as f:
         jsonString = json.dumps(setting)
         f.write(jsonString)
-if os.path.exists('LICENSE'): # Load GPL v3.
-    readLICENSE_GPLV3 = open('LICENSE', 'r', encoding='utf-8').read()
+readLICENSE_GPLV3 = bilimusic_data.getData('LICENSE', 'str')
+if readLICENSE_GPLV3 != None: # Load GPL v3.
+    # open('LICENSE', 'r', encoding='utf-8').read()
     if readLICENSE_GPLV3 == '':
         LICENSE_GPLV3 = '加载错误，请访问 https://www.gnu.org/licenses/gpl-3.0.txt 查看 GNU 通用公共许可证 第三版 的原文。'
     else:
         LICENSE_GPLV3 = readLICENSE_GPLV3
 else:
-    if not(os.path.exists(f'{setting["CACHE_DIR"]}/bilidown.license.gplv3.cache')):
+    if not(os.path.exists(f'{setting["CACHE_DIR"]}/bilimusic.license.gplv3.cache')):
         try:
             header = {"User-Agent": setting['UA']}
             gplv3 = requests.get('https://www.gnu.org/licenses/gpl-3.0.txt', headers=header) # https://www.gnu.org/licenses/gpl-3.0.txt
             LICENSE_GPLV3 = gplv3.content
-            with open(f'{setting["CACHE_DIR"]}/bilidown.license.gplv3.cache', 'w+', encoding='utf-8') as licenseCacheFile:
+            with open(f'{setting["CACHE_DIR"]}/bilimusic.license.gplv3.cache', 'w+', encoding='utf-8') as licenseCacheFile:
                 licenseCacheFile.write(LICENSE_GPLV3.decode('utf-8'))
         except:
             # print(Error)
             LICENSE_GPLV3 = '加载错误，请访问 https://www.gnu.org/licenses/gpl-3.0.txt 查看 GNU 通用公共许可证 第三版 的原文。'
     else:
-        readLICENSE_GPLV3 = open(f'{setting["CACHE_DIR"]}/bilidown.license.gplv3.cache', 'r', encoding='utf-8').read()
+        readLICENSE_GPLV3 = open(f'{setting["CACHE_DIR"]}/bilimusic.license.gplv3.cache', 'r', encoding='utf-8').read()
         if readLICENSE_GPLV3 == '':
             LICENSE_GPLV3 = '加载错误，请访问 https://www.gnu.org/licenses/gpl-3.0.txt 查看 GNU 通用公共许可证 第三版 的原文。'
         else:
             LICENSE_GPLV3 = readLICENSE_GPLV3
-class bilidownApp:
+class bilimusicApp:
     def __init__(self, page: ft.Page):
         # GUI Interface
         # I DON'T WANT TO WRITE COMMENTS.
         # 我不想写注释了...
-        page.title = 'bilidown'
+        page.title = 'bilimusic'
         page.scroll = 'AUTO'
         if setting["darkMode"]:
             page.theme_mode = 'DARK'
@@ -182,6 +175,7 @@ class bilidownApp:
             # Get settings in setup window and write settings.
             # global setting
             language = self.languageMenu.value
+            language = lang_dict[language]
             cache_dir = self.cacheDirEntry.value
             download_dir = self.downloadDirEntry.value
             if cache_dir[-1::] == '\\' or cache_dir[-1::] == '/':
@@ -197,7 +191,7 @@ class bilidownApp:
                 page.theme_mode = 'LIGHT'
                 page.update()
             try:
-                i18n = json.loads(open(f'i18n/{language}.json', 'r', encoding='utf-8').read())
+                i18n = bilimusic_i18n.getI18nDict()
                 page.update()
             except:
                 Error = traceback.format_exc()
@@ -228,7 +222,7 @@ class bilidownApp:
         def settings(self):
             # self.languageEntry = ft.Dropdown()
             self.languageMenu = ft.Dropdown(label=i18n["language"],
-                                     value=setting["language"],
+                                     value=lang_dict_unreversed[setting["language"]],
                                      options=list(map(
                                         ft.dropdown.Option,
                                         languages
@@ -288,7 +282,7 @@ class bilidownApp:
                     v = video.Video(aid=av)
                 info = await v.get_info() # Get Video info.
                 # print(info)
-                with open(f'{setting["CACHE_DIR"]}/bilidown.video.info.{bv}.json', 'w+') as infoFile:
+                with open(f'{setting["CACHE_DIR"]}/bilimusic.video.info.{bv}.json', 'w+') as infoFile:
                     infoJsonString = json.dumps(info)
                     infoFile.write(infoJsonString)
                 releaseYear = time.localtime(info["ctime"]).tm_year
@@ -298,7 +292,7 @@ class bilidownApp:
                 header = {"User-Agent": setting['UA']}
                 coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
                 # print(r.content)
-                with open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}', 'wb+') as file: # Write Cover Image to cache.
+                with open(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_coverImage_{bv}', 'wb+') as file: # Write Cover Image to cache.
                     file.write(coverpic.content)
                 cover.cover(bv, 
                             setting['COVER_RES'], 
@@ -377,7 +371,7 @@ class bilidownApp:
                         # print(f'musicFile: {musicFile}')
                     # musicFile.save()
                     musicFile.save()
-                    coverFile = open(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg', 'rb').read()
+                    coverFile = open(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_cover_{bv}.jpg', 'rb').read()
                     if mode[0] == 'mp3':
                         musicFileMP3 = mutagen.mp3.MP3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', ID3 = ID3)
                         musicFileMP3.tags.add(APIC(encoding = 3,
@@ -395,8 +389,8 @@ class bilidownApp:
                         musicFileFLAC.add_picture(flacCoverImage)
                         musicFileFLAC.save()
                     # Delete Cache.
-                    # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_coverImage_{bv}') 
-                    # os.remove(f'{setting["CACHE_DIR"]}/bilidown_CACHE_cover_{bv}.jpg')
+                    # os.remove(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_coverImage_{bv}') 
+                    # os.remove(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_cover_{bv}.jpg')
                     # os.remove(f'{setting["CACHE_DIR"]}/{audio_name}.m4s')
                     showSnackBar(message = f'{bv} {audio_name} {i18n["downloadFinished"]}')
                     return 0
@@ -428,7 +422,7 @@ class bilidownApp:
         settings(self)
         # self.about()
         self.titleImage = ft.Image(
-                src='bilidown.svg',
+                src='bilimusic.svg',
                 width=200,
                 height=200,
                 fit=ft.ImageFit.CONTAIN
@@ -471,7 +465,7 @@ class bilidownApp:
                     title=ft.Text(i18n["about"])
                 ),
                 ft.Text(
-                    f'bilidown\n{i18n["copyright"]}'
+                    f'bilimusic\n{i18n["copyright"]}'
                 ),
                 ft.Text(
                     LICENSE_GPLV3
@@ -556,11 +550,10 @@ class bilidownApp:
         asyncio.set_event_loop(self.eventLoop)
         self.eventLoop.run_forever()
     def otherLibrary(self):
-        if os.path.exists('LICENSE_OTHER_LIBRARY'):
-            self.otherLibLicenseText = open('LICENSE_OTHER_LIBRARY', 'r', encoding='utf-8').read()
-        else:
+        self.otherLibLicenseText = bilimusic_data.getData('LICENSE_OTHER_LIBRARY', 'str')
+        if self.otherLibLicenseText == None:
             self.otherLibLicenseText = '加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。'
 if __name__ == '__main__':
-    # GUIForm = bilidownApp()
-    ft.app(target=bilidownApp)
+    # GUIForm = bilimusicApp()
+    ft.app(target=bilimusicApp, assets_dir='bilimusic_data')
     #bv = input("bvid: ") # Input Bvid.

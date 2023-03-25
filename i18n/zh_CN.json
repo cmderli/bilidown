@@ -1,6 +1,6 @@
 {
     "langname": "简体中文(中国大陆)",
-    "name": "bilidown-bilibili音乐下载器",
+    "name": "bilimusic-bilibili音乐下载器",
     "settings": "设置",
     "about": "关于",
     "otherLib": "第三方库许可证",
@@ -17,7 +17,7 @@
     "downloadFinished": "下载完成。",
     "downloadFailed": "下载失败。\n错误信息:",
     "gplLoadingFailed": "加载错误，请访问 https://www.gnu.org/licenses/gpl-3.0.txt 查看 GNU 通用公共许可证 第三版 的原文。",
-    "otherLicenseLoadingFailed":"加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。",
+    "otherLicenseLoadingFailed":"加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。(或访问 https://github.com/cmderli/bilidown/blob/main/LICENSE_OTHER_LIBRARY )",
     "invalidBV": "无效的BV/AV号",
     "invalidAudioBitrate": "无效的音频质量{bit_rate}。",
     "invalidAudioFormat": "不支持的封装格式{audio_format}",
