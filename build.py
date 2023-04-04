@@ -30,7 +30,7 @@ if os.system('flet --version') != 0:
     print('flet is not exists. Press Ctrl+C to exit.')
     while True:
         pass
-build_command = f'flet pack bilimusic.pyw --product-name bilimusic --copyright "{COPYRIGHT}" --icon bilimusic-app-dark.png --name {output_name}'
+build_command = f'flet pack bilimusic.pyw --product-name bilimusic --copyright "{COPYRIGHT}" --icon bilimusic.png --name {output_name}'
 # build_command = 'echo 0'
 if os.system(build_command) == 0:
     print('Build finished. Cleaning...')

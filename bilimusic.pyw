@@ -292,7 +292,7 @@ class bilimusicApp:
                 header = {"User-Agent": setting['UA']}
                 coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
                 # print(r.content)
-                with open(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_coverImage_{bv}', 'wb+') as file: # Write Cover Image to cache.
+                with open(f'{setting["CACHE_DIR"]}/bilimusic.cache.coverImage.{bv}', 'wb+') as file: # Write Cover Image to cache.
                     file.write(coverpic.content)
                 cover.cover(bv, 
                             setting['COVER_RES'], 
@@ -320,7 +320,7 @@ class bilimusicApp:
                 for char in ILLEGAL_DIR_CHAR:
                     audio_name = audio_name.replace(char, '_') # Replace illegal characters.
                 if setting["downloadEngine"] != "<Built-in>":
-                    download_dir = f'{setting["DOWNLOAD_DIR"]}/{audio_name}'
+                    download_dir = f'{setting["CACHE_DIR"]}/{bv}'
                     audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
                     command = downloadCommand.replace('{url}', audio_url).replace('{output}', download_dir)
                     with os.popen(command):
@@ -331,20 +331,20 @@ class bilimusicApp:
                         resp = await sess.get(audio_url)
                         length = resp.headers.get('content-length') # Audio file length.
                         # Download audio.
-                        with open(f'{setting["CACHE_DIR"]}/{audio_name}.m4s', 'wb') as f: 
+                        with open(f'{setting["CACHE_DIR"]}/{bv}.m4s', 'wb') as f: 
                             process = 0
                             for chunk in resp.iter_bytes(1024):
                                 if not chunk:
                                     break
                                 process += len(chunk)
                                 f.write(chunk)
-                if os.path.exists(f'{setting["CACHE_DIR"]}/{audio_name}.m4s'):
+                if os.path.exists(f'{setting["CACHE_DIR"]}/{bv}.m4s'):
                     if mode[0] == 'mp3':
-                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{audio_name}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"')
+                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{bv}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"')
                         ffmpeg_command = ffmpeg_command.replace('{decodelib}', setting["mp3Decoder"])
                         # ffmpeg_command = f'{setting["FFMPEG"]} -i "{setting["CACHE_DIR"]}/{audio_name}.m4s" -y -acodec libmp3lame -b:a {mode[1]} "{setting["DOWNLOAD_DIR"]}/{audio_name}.mp3"'
                     elif mode[0] == 'flac':
-                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{audio_name}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.flac"')
+                        ffmpeg_command = setting["decodeCommand"].replace('{decoder}', setting["FFMPEG"]).replace('{input}', f'"{setting["CACHE_DIR"]}/{bv}.m4s"').replace('{bitrate}', mode[1]).replace('{output}', f'"{setting["DOWNLOAD_DIR"]}/{audio_name}.flac"')
                         ffmpeg_command = ffmpeg_command.replace('{decodelib}', setting["flacDecoder"])
                     print(ffmpeg_command)
                     with os.popen(ffmpeg_command):# Use ffmpeg to transcoding audio."""
@@ -371,7 +371,7 @@ class bilimusicApp:
                         # print(f'musicFile: {musicFile}')
                     # musicFile.save()
                     musicFile.save()
-                    coverFile = open(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_cover_{bv}.jpg', 'rb').read()
+                    coverFile = open(f'{setting["CACHE_DIR"]}/bilimusic.cache.cover.{bv}.jpg', 'rb').read()
                     if mode[0] == 'mp3':
                         musicFileMP3 = mutagen.mp3.MP3(f'{setting["DOWNLOAD_DIR"]}/{audio_name}.{mode[0]}', ID3 = ID3)
                         musicFileMP3.tags.add(APIC(encoding = 3,
@@ -389,14 +389,16 @@ class bilimusicApp:
                         musicFileFLAC.add_picture(flacCoverImage)
                         musicFileFLAC.save()
                     # Delete Cache.
-                    # os.remove(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_coverImage_{bv}') 
-                    # os.remove(f'{setting["CACHE_DIR"]}/bilimusic_CACHE_cover_{bv}.jpg')
-                    # os.remove(f'{setting["CACHE_DIR"]}/{audio_name}.m4s')
+                    if setting["cacheAutoDelete"]:
+                        os.remove(f'{setting["CACHE_DIR"]}/bilimusic.cache.coverImage.{bv}') 
+                        os.remove(f'{setting["CACHE_DIR"]}/bilimusic.cache.cover.{bv}.jpg')
+                        os.remove(f'{setting["CACHE_DIR"]}/{bv}.m4s')
+                        os.remove(f'{setting["CACHE_DIR"]}/bilimusic.video.info.{bv}.json')
                     showSnackBar(message = f'{bv} {audio_name} {i18n["downloadFinished"]}')
                     return 0
                     # os._exit(0)
                 else:
-                    raise OSError(f"File {setting['DOWNLOAD_DIR']}/{audio_name}.m4s does not exists.")
+                    raise OSError(f"File {setting['CACHE_DIR']}/{bv}.m4s does not exists.")
             except:
                 Error = traceback.format_exc()
                 showMessage(title = i18n["error"], message = f'{bv} {i18n["downloadFailed"]} {Error}')
