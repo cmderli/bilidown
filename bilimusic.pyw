@@ -42,7 +42,7 @@ MAGIC_STRING = '6L+Z6YeM5LuA5LmI5Lmf5rKh5pyJ'
 NOFACE = 'https://static.hdslb.com/images/member/noface.gif' # Thanks New Bing. https://sl.bing.net/cPB8OpQ9evc
 badSettingFile = False
 setting = {
-    "language": "zh_CN",
+    "language": bilimusic_i18n.getI18nCode(),
     "SESSDATA": "",
     "BILI_JCT": "",
     "BUVID3": "",

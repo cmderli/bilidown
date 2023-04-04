@@ -3,6 +3,7 @@
 import json
 import hashlib
 import os
+import locale
 MAGIC_STRING = '6L+Z6YeM5LuA5LmI5Lmf5rKh5pyJ'
 I18N_DATA = None # DO NOT DELETE OR MODIFY THIS LINE.
 IS_BUILD = False # DO NOT DELETE OR MODIFY THIS LINE.
@@ -27,10 +28,8 @@ def getI18nDict():
     setting = readSettings()
     if setting != 1:
         lang = setting["language"]
-    else:
-        lang = 'en_US'
     if IS_BUILD:
-        i18nFile =  I18N_DATA
+        i18nFile = I18N_DATA
         i18n = i18nFile[lang]
     else:
         with open(f'i18n/{lang}.json', 'r', encoding='utf-8') as f:
@@ -66,3 +65,21 @@ def getI18nListDict():
                         langname = langflie["langname"]
                         lang_dict[lang_name] = langname
     return lang_dict
+def getI18nList() -> list :
+    langname_list = list()
+    if IS_BUILD:
+        for lang_name in I18N_DATA:
+            langname_list.append(lang_name)
+    else:
+        for root, dirs, files in os.walk('i18n'):
+            for name in files:
+                if name[-5::] == '.json':
+                    langname_list.append(name[:-5:])
+    return langname_list
+def getI18nCode():
+    i18n_code = locale.getdefaultlocale()
+    langname_list = getI18nList()
+    if i18n_code[0] in langname_list:
+        return i18n_code[0]
+    else:
+        return 'en_US'
