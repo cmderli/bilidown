@@ -41,5 +41,12 @@
     "defaultAudioBitrate": "默认音频质量",
     "downloadEngine": "下载引擎",
     "downloadEngineCommand": "下载命令语法",
+    "aboutUserInfo": "# 你的哔哩哔哩用户信息",
+    "sessdataEntry": "你的 SESSDATA",
+    "bilijctEntry": "你的 bili_jct",
+    "buvid3Entry": "你的 buvid3",
+    "dedeuseridEntry": "你的 DedeUserID",
+    "QRLoginButton": "扫码登录",
+    "unLogin": "未登录",
     "copyright": "版权所有 (C) 2023 程序猿李某人(cmderli)\n本软件是自由软件；你可以按照由自由软件基金会发布的GNU通用公共许可证来再发布该软件或者修改该软件；\n你可以使用该许可证的第3版，或者（作为可选项）使用该许可证的任何更新版本。\n本程序的发布是希望它能发挥作用，但是并无担保；\n甚至也不担保其可销售性或适用于某个特殊的目的。请参看GNU通用公共许可证来了解详情。\n该程序应该同时附有一份GNU通用公共许可证的拷贝；如果没有，请参看<https://www.gnu.org/licenses>。"
 }

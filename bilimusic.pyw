@@ -15,7 +15,7 @@ COPYRIGHT = """
 """
 import time
 import asyncio
-from bilibili_api import video, Credential, HEADERS
+from bilibili_api import video, Credential, HEADERS, user, audio, sync, login
 import httpx
 import os
 import requests
@@ -39,9 +39,14 @@ ILLEGAL_DIR_CHAR = ['<', '|', '>', '\\', '/', ':', '"', '*', '?'] # There is The
 SUPPORT_AUDIO_FORMAT = ('mp3', 'flac')
 CWD = os.getcwd()
 MAGIC_STRING = '6L+Z6YeM5LuA5LmI5Lmf5rKh5pyJ'
+NOFACE = 'https://static.hdslb.com/images/member/noface.gif' # Thanks New Bing. https://sl.bing.net/cPB8OpQ9evc
 badSettingFile = False
 setting = {
     "language": "zh_CN",
+    "SESSDATA": "",
+    "BILI_JCT": "",
+    "BUVID3": "",
+    "DEDEUSERID": "",
     "theme_mode": False,
     "DOWNLOAD_DIR": CWD,
     "CACHE_DIR": CWD+"/.bilimusic_cache",
@@ -97,8 +102,42 @@ lang_dict = dict()
 for lang_name in lang_dict_unreversed:
     lang_dict[lang_dict_unreversed[lang_name]] = lang_name
     languages.append(lang_dict_unreversed[lang_name])
-# print(languages)
 i18n = bilimusic_i18n.getI18nDict()
+credential = Credential(setting["SESSDATA"], setting["BILI_JCT"], setting["BUVID3"], setting["DEDEUSERID"])
+def biliGetMyInfo() -> dict:
+    if credential.bili_jct != '':
+        myBiliUser = user.User(uid=int(credential.dedeuserid),credential=credential)
+        myInfo = sync(myBiliUser.get_user_info())
+        with open(f'{setting["CACHE_DIR"]}/bilimusic.bilibili.user.info.{credential.dedeuserid}.json', 'w+') as infoFile:
+            infoJsonString = json.dumps(myInfo)
+            infoFile.write(infoJsonString)
+        header = {"User-Agent": setting['UA']}
+        coverpic = requests.get(myInfo["face"], headers=header) # Download Cover Image.
+        with open(f'{setting["CACHE_DIR"]}/bilimusic.bilibili.user.face.{credential.dedeuserid}', 'wb+') as file: # Write Cover Image to cache.
+            file.write(coverpic.content)
+        # print(
+        #     myBiliUser.get_uid(),
+        #     myInfo
+        # )
+        return myInfo
+    else:
+        return {"face": NOFACE, "name": i18n["unLogin"]}
+
+def biliQRLogin():
+    credential = login.login_with_qrcode()
+    print(
+        credential.sessdata,
+        credential.bili_jct,
+        credential.has_bili_jct(),
+        credential.buvid3,
+        credential.dedeuserid,
+        sep=",\n"
+    )
+    setting["SESSDATA"] = credential.sessdata
+    setting["BILI_JCT"] = credential.bili_jct
+    setting["BUVID3"] = credential.buvid3
+    setting["DEDEUSERID"] = credential.dedeuserid
+    writeSettings(setting)
 if not(os.path.exists(setting['CACHE_DIR'])):
     setting['CACHE_DIR'] = CWD+'/.bilimusic_cache'
     with open('bilimusic.SETTINGS', 'w+', encoding='utf-8') as f:
@@ -215,7 +254,11 @@ class bilimusicApp:
                 "DOWNLOAD_CHUNK_SIZE": int(self.downloadChunkSizeSlider.value),
                 "DEFAULT_AUDIO_FORMAT": self.defaultAudioFormatEntry.value,
                 "DEFAULT_AUDIO_BITRATE": self.defaultAudioBitrateEntry.value,
-                "darkMode": bool(self.darkModeSwitch.value)
+                "darkMode": bool(self.darkModeSwitch.value),
+                "SESSDATA": "",
+                "BILI_JCT": "",
+                "BUVID3": "",
+                "DEDEUSERID": "",
             }
             writeSettings(setting)
             showMessage(i18n["finished"], i18n["writeSettingsFinished"])
@@ -270,16 +313,49 @@ class bilimusicApp:
                                                     value=setting["downloadEngine"])
             self.downloadEngineCommandEntry = ft.TextField(label=i18n["downloadEngineCommand"], 
                                                     value=setting["downloadEngineCommand"])
+            self.aboutUserInfo = ft.Markdown(
+                i18n["aboutUserInfo"],
+                selectable=True,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                on_tap_link=lambda e: page.launch_url(e.data),
+            )
+            myInfo = biliGetMyInfo()
+            self.myBilibiliUser = ft.ListTile(
+                leading=ft.CircleAvatar(
+                    foreground_image_url=myInfo["face"]
+                ),
+                title=ft.Text(myInfo["name"])
+            )
+            # self.sessdataEntry = ft.TextField(
+            #     label=i18n["sessdataEntry"],
+            #     value=setting["SESSDATA"]
+            # )
+            # self.bilijctEntry = ft.TextField(
+            #     label=i18n["bilijctEntry"],
+            #     value=setting["BILI_JCT"]
+            # )
+            # self.buvid3Entry = ft.TextField(
+            #     label=i18n["buvid3Entry"],
+            #     value=setting["BUVID3"]
+            # )
+            # self.dedeuseridEntry = ft.TextField(
+            #     label=i18n["dedeuseridEntry"],
+            #     value=setting["DEDEUSERID"]
+            # )
+            self.QRLoginButton = ft.TextButton(
+                text=i18n["QRLoginButton"],
+                on_click=lambda _: biliQRLogin()
+            )
         async def downloadAudio(bv,mode):
     # asyncio.set_event_loop(eventLoop)
             try:
                 if setting["downloadEngine"] != "<Built-in>":
                     downloadCommand = setting["downloadEngineCommand"].replace('{downloadEngine}', setting["downloadEngine"])
                 if (bv[:2:] == 'BV'):
-                    v = video.Video(bvid=bv)
+                    v = video.Video(bvid=bv, credential=credential)
                 elif (bv[:2:] == 'av' or bv[:2:] == 'AV'):
                     av = int(bv[2::])
-                    v = video.Video(aid=av)
+                    v = video.Video(aid=av, credential=credential)
                 info = await v.get_info() # Get Video info.
                 # print(info)
                 with open(f'{setting["CACHE_DIR"]}/bilimusic.video.info.{bv}.json', 'w+') as infoFile:
@@ -388,7 +464,7 @@ class bilimusicApp:
                         flacCoverImage.data = coverFile
                         musicFileFLAC.add_picture(flacCoverImage)
                         musicFileFLAC.save()
-                    # Delete Cache.
+                    # Delete Cache. 
                     if setting["cacheAutoDelete"]:
                         os.remove(f'{setting["CACHE_DIR"]}/bilimusic.cache.coverImage.{bv}') 
                         os.remove(f'{setting["CACHE_DIR"]}/bilimusic.cache.cover.{bv}.jpg')
@@ -512,6 +588,13 @@ class bilimusicApp:
                 self.defaultAudioBitrateEntry,
                 self.downloadEngineEntry,
                 self.downloadEngineCommandEntry,
+                self.aboutUserInfo,
+                self.myBilibiliUser,
+                # self.sessdataEntry,
+                # self.bilijctEntry,
+                # self.buvid3Entry,
+                # self.dedeuseridEntry,
+                self.QRLoginButton,
                 ft.FilledButton(
                     text=i18n["ok"], 
                     on_click=lambda _:enableSettings(self)
