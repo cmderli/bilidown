@@ -41,5 +41,12 @@
     "defaultAudioBitrate": "Default audio quality",
     "downloadEngine": "Download Engine",
     "downloadEngineCommand": "Download command syntax",
+    "aboutUserInfo": "# Your Bilibili user information",
+    "sessdataEntry": "Your SESSDATA",
+    "bilijctEntry": "Your bili_jct",
+    "buvid3Entry": "Your buvid3",
+    "dedeuseridEntry": "Your DedeUserID",
+    "QRLoginButton": "Scan QR Code to login",
+    "unLogin": "Not logged in",
     "copyright": "Copyright (C) 2023 cmderli\nThis program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\nYou should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>."
 }
