@@ -15,6 +15,7 @@ COPYRIGHT = """
 """
 import time
 import asyncio
+import webbrowser
 from bilibili_api import video, Credential, HEADERS, user, audio, sync, login
 import httpx
 import os
@@ -50,7 +51,7 @@ setting = {
     "theme_mode": False,
     "DOWNLOAD_DIR": CWD,
     "CACHE_DIR": CWD+"/.bilimusic_cache",
-    "cacheAutoDelete": True,
+    "cacheAutoDelete": False,
     "FFMPEG": "ffmpeg",
     "decodeCommand": "{decoder} -i {input} -y -acodec {decodelib} {bitrate} {output}",
     "mp3Decoder": "libmp3lame -b:a",
@@ -64,7 +65,7 @@ setting = {
     "DOWNLOAD_CHUNK_SIZE": 1024,
     "DEFAULT_AUDIO_FORMAT": "mp3",
     "DEFAULT_AUDIO_BITRATE": "320k",
-    "darkMode": False
+    "darkMode": True
 }
 def writeSettings(setting):
     with open('bilimusic.SETTINGS', 'w+', encoding='utf-8') as f:
@@ -255,11 +256,12 @@ class bilimusicApp:
                 "DEFAULT_AUDIO_FORMAT": self.defaultAudioFormatEntry.value,
                 "DEFAULT_AUDIO_BITRATE": self.defaultAudioBitrateEntry.value,
                 "darkMode": bool(self.darkModeSwitch.value),
-                "SESSDATA": "",
-                "BILI_JCT": "",
-                "BUVID3": "",
-                "DEDEUSERID": "",
+                "SESSDATA": credential.sessdata,
+                "BILI_JCT": credential.bili_jct,
+                "BUVID3": credential.buvid3,
+                "DEDEUSERID": credential.dedeuserid,
             }
+            print(setting)
             writeSettings(setting)
             showMessage(i18n["finished"], i18n["writeSettingsFinished"])
         def settings(self):
@@ -346,64 +348,21 @@ class bilimusicApp:
                 text=i18n["QRLoginButton"],
                 on_click=lambda _: biliQRLogin()
             )
-        async def downloadAudio(bv,mode):
-    # asyncio.set_event_loop(eventLoop)
+        async def newDownloadAudio(bv,audio_url, audio_name, audio_title, Artists, releaseDate, musicAlbum,mode):
             try:
+                for char in ILLEGAL_DIR_CHAR:
+                    audio_name = audio_name.replace(char, '_')
                 if setting["downloadEngine"] != "<Built-in>":
                     downloadCommand = setting["downloadEngineCommand"].replace('{downloadEngine}', setting["downloadEngine"])
-                if (bv[:2:] == 'BV'):
-                    v = video.Video(bvid=bv, credential=credential)
-                elif (bv[:2:] == 'av' or bv[:2:] == 'AV'):
-                    av = int(bv[2::])
-                    v = video.Video(aid=av, credential=credential)
-                info = await v.get_info() # Get Video info.
-                # print(info)
-                with open(f'{setting["CACHE_DIR"]}/bilimusic.video.info.{bv}.json', 'w+') as infoFile:
-                    infoJsonString = json.dumps(info)
-                    infoFile.write(infoJsonString)
-                releaseYear = time.localtime(info["ctime"]).tm_year
-                releaseTime = time.localtime(info["ctime"])
-                releaseDate = time.strftime('%Y/%m/%d', releaseTime)
-                pic_url = info['pic'] # Cover picture URL.
-                header = {"User-Agent": setting['UA']}
-                coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
-                # print(r.content)
-                with open(f'{setting["CACHE_DIR"]}/bilimusic.cache.coverImage.{bv}', 'wb+') as file: # Write Cover Image to cache.
-                    file.write(coverpic.content)
-                cover.cover(bv, 
-                            setting['COVER_RES'], 
-                            setting['CACHE_DIR']) # Use cover.py to generate cover image.
-                # print(info)
-                # Artists
-                if 'staff' in info:
-                    Staff = info['staff'] # Staff
-                    Artists = ""
-                    for artist in Staff:
-                        artistName = artist['name']
-                        Artists += artistName + setting['ARTIST_DIVISION_CHAR']
-                    Artists = Artists[:len(setting['ARTIST_DIVISION_CHAR']) * -1:]
-                    # print(Artists)
-                else:
-                    Artists = info['owner']['name']
-                url = await v.get_download_url(0) # Download url
-                audio_name = str(info['title']) # Audio File Name.
-                audio_title = audio_name # Audio Title.
-                if "ugc_season" in info:
-                    musicAlbum = info["ugc_season"]["title"]
-                else:
-                    musicAlbum = audio_title
-                # global ILLEGAL_DIR_CHAR
-                for char in ILLEGAL_DIR_CHAR:
-                    audio_name = audio_name.replace(char, '_') # Replace illegal characters.
                 if setting["downloadEngine"] != "<Built-in>":
                     download_dir = f'{setting["CACHE_DIR"]}/{bv}'
-                    audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
+                    #audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
                     command = downloadCommand.replace('{url}', audio_url).replace('{output}', download_dir)
                     with os.popen(command):
                         pass
                 else:
                     async with httpx.AsyncClient(headers=HEADERS) as sess:
-                        audio_url = url['dash']['audio'][0]['baseUrl'] # Audio URL
+                        #audio_url = video.VideoDownloadURLDataDetecter(url).detect_best_streams()[1].url # Audio URL
                         resp = await sess.get(audio_url)
                         length = resp.headers.get('content-length') # Audio file length.
                         # Download audio.
@@ -481,20 +440,150 @@ class bilimusicApp:
                 print(f'{bv} 下载失败。\n错误信息：{Error}')
                 return 1
                 # os._exit(1)
-        def preDownload(self):
+        def newPreDownload(self, bv,audio_url, audio_name, audio_title, Artists, releaseDate, musicAlbum, mode):
         # global bvEntry, formatMenu, bitrateEntry
-            bv = str(self.bvEntry.value)
-            audio_format = str(self.formatMenu.value)
-            bit_rate = str(self.bitrateEntry.value)
+            bit_rate = mode[1]
+            audio_format = mode[0]
             if bv == '' or not(bv[:2:] == 'BV' or bv[:2:] == 'av' or bv[:2:] == 'AV'):
                 showMessage(title=i18n["error"], message=f'{i18n["invalidBV"]} {bv}')
                 return 0
-            showSnackBar(f'{i18n["nowDownloading"]} {bv}')
-            downloadCoroutine = downloadAudio(bv, (audio_format, bit_rate))
+            showSnackBar(f'{i18n["nowDownloading"]} {bv} {audio_title}')
+            downloadCoroutine = newDownloadAudio(bv,audio_url, audio_name, audio_title, Artists, releaseDate, musicAlbum,mode)
             newLoop = asyncio.new_event_loop()
             lockThread = threading.Thread(target=self.setEventLoop, args=(newLoop, ))
             lockThread.start()
             asyncio.run_coroutine_threadsafe(downloadCoroutine, newLoop)
+        def getVideoInfo(bv):
+                if (bv[:2:] == 'BV'):
+                    v = video.Video(bvid=bv, credential=credential)
+                elif (bv[:2:] == 'av' or bv[:2:] == 'AV'):
+                    av = int(bv[2::])
+                    v = video.Video(aid=av, credential=credential)
+                info = sync(v.get_info())# Get Video info.
+                # print(info)
+                video_stat = sync(v.get_stat())
+                with open(f'{setting["CACHE_DIR"]}/bilimusic.video.info.{bv}.json', 'w+') as infoFile:
+                    infoJsonString = json.dumps(info)
+                    infoFile.write(infoJsonString)
+                releaseYear = time.localtime(info["pubdate"]).tm_year
+                releaseTime = time.localtime(info["pubdate"])
+                releaseDate = time.strftime('%Y/%m/%d', releaseTime)
+                detailed_release_date = time.strftime('%Y-%m-%d %H:%M:%S', releaseTime)
+                pic_url = info['pic'] # Cover picture URL.
+                header = {"User-Agent": setting['UA']}
+                coverpic = requests.get(pic_url, headers=header) # Download Cover Image.
+                # print(r.content)
+                with open(f'{setting["CACHE_DIR"]}/bilimusic.cache.coverImage.{bv}', 'wb+') as file: # Write Cover Image to cache.
+                    file.write(coverpic.content)
+                cover.cover(bv, 
+                            setting['COVER_RES'], 
+                            setting['CACHE_DIR']) # Use cover.py to generate cover image.
+                # print(info)
+                # Artists
+                artists = list()
+                if 'staff' in info:
+                    Staff = info['staff'] # Staff
+                    Artists = ""
+                    for artist in Staff:
+                        artistName = artist['name']
+                        Artists += artistName + setting['ARTIST_DIVISION_CHAR']
+                        artists.append((artist['title'], artist['name'], artist['face'], artist['mid']))
+                    Artists = Artists[:len(setting['ARTIST_DIVISION_CHAR']) * -1:]
+                    # print(Artists)
+                else:
+                    Artists = info['owner']['name']
+                    artists.append(('UP主', info['owner']['name'], info['owner']['face'], info['owner']['mid']))
+                url = sync(v.get_download_url(0)) # Download url
+                audio_url = video.VideoDownloadURLDataDetecter(url).detect_best_streams()[1].url
+                with open(f'{setting["CACHE_DIR"]}/bilimusic.video.audio.info.{bv}.json', 'w+') as infoFile:
+                    infoJsonString = json.dumps(url["dash"]["audio"][0])
+                    infoFile.write(infoJsonString)
+                audio_name = str(info['title']) # Audio File Name.
+                audio_title = audio_name # Audio Title.
+                if "ugc_season" in info:
+                    musicAlbum = info["ugc_season"]["title"]
+                else:
+                    musicAlbum = audio_title
+                return (v, info, releaseDate, audio_name, audio_title, audio_url, musicAlbum, artists, Artists, pic_url, detailed_release_date, video_stat)
+        
+        def newDownloadPage(self, bv):
+            if (bv[:2:] == 'BV'):
+                vd = getVideoInfo(bv)
+            elif (bv[:2:] == 'av' or bv[:2:] == 'AV'):
+                av = int(bv[2::])
+                vd = getVideoInfo(av)
+            video_stat = vd[11]
+            coverpic = ft.Image(
+                src=vd[9],
+                fit=ft.ImageFit.FIT_WIDTH
+            )
+            videoName = ft.TextField(label=i18n["title"],value=vd[4], text_size=20)
+            videoRelTime = ft.Text(
+                f'''{i18n["relTime"]} {vd[10]} 
+            {video_stat["view"]} {i18n["plays"]} 
+            {video_stat["like"]} {i18n["likes"]} 
+            {video_stat["coin"]} {i18n["coins"]} 
+            {video_stat["favorite"]} {i18n["favorite"]} 
+            {video_stat["danmaku"]} {i18n["danmakus"]} 
+            {video_stat["reply"]} {i18n["comments"]}''', 
+                size=20
+            )
+            videoAlbum = ft.TextField(label=i18n["album"],value=vd[6], text_size=20)
+            videoArtists = ft.ListView(padding=20, spacing=10, auto_scroll=True)
+            for artist in vd[7]:# artists.append(('UP主', info['owner']['name'], info['owner']['face']))
+                videoArtists.controls.append(
+                    ft.ListTile(
+                        leading=ft.CircleAvatar(foreground_image_url=artist[2]),
+                        title=ft.Text(f'{artist[0]} {artist[1]}'),
+                        on_click=lambda _: webbrowser.open(f'https://space.bilibili.com/{artist[3]}')
+                    )
+                )
+            formatMenu = ft.Dropdown(
+                label=i18n["audioFormat"],
+                value=setting["DEFAULT_AUDIO_FORMAT"],
+                options=list(
+                    map(
+                        ft.dropdown.Option,
+                        SUPPORT_AUDIO_FORMAT
+                    )
+                )
+            )
+            bitrateEntry = ft.TextField(
+                label=i18n["audioBitrate"],
+                value=setting["DEFAULT_AUDIO_BITRATE"]
+            )
+            okbutton = ft.TextButton(
+                text=i18n["ok"], 
+                on_click=lambda _:newPreDownload(
+                    self, 
+                    bv, 
+                    vd[5], 
+                    vd[3], 
+                    videoName.value, 
+                    vd[8],
+                    vd[2],
+                    videoAlbum.value,
+                    (formatMenu.value, bitrateEntry.value)
+                ) # newPreDownload(self, bv,audio_url, audio_name, audio_title, Artists, releaseDate, musicAlbum,mode)
+            )
+            self.NewDownloadPage = ft.View(
+                f'/{bv}',
+                [
+                    ft.AppBar(
+                        title=ft.Text(f'BiliMusic - {vd[4]}')
+                    ),
+                    coverpic,
+                    videoName,
+                    videoRelTime,
+                    videoAlbum,
+                    videoArtists,
+                    formatMenu,
+                    bitrateEntry,
+                    okbutton
+                ],
+                scroll='AUTO'
+            )
+            page.go(f'/{bv}')
         self.mainPage()
         self.otherLibrary()
         settings(self)
@@ -530,9 +619,10 @@ class bilimusicApp:
                     ]
                 ),
                 self.bvEntry,
-                self.formatMenu,
-                self.bitrateEntry,
-                ft.FilledButton(text=i18n["ok"], on_click=lambda _:preDownload(self))
+                # self.formatMenu,
+                # self.bitrateEntry,
+                # ft.FilledButton(text=i18n["ok"], on_click=lambda _:preDownload(self)),
+                ft.TextButton(text=i18n["ok"], on_click=lambda _:newDownloadPage(self, self.bvEntry.value)),
             ],
             scroll='AUTO'
         )
@@ -607,10 +697,14 @@ class bilimusicApp:
             page.views.append(self.MainPage)
             if page.route == '/about':
                 page.views.append(self.AboutPage)
-            if page.route == '/otherlib':
+            elif page.route == '/otherlib':
                 page.views.append(self.otherLibPage)
-            if page.route == '/settings':
+            elif page.route == '/settings':
                 page.views.append(self.settingPage)
+            elif page.route == '/':
+                page.views.append(self.MainPage)
+            else:
+                page.views.append(self.NewDownloadPage)
             page.update()
         def viewPop(view):
             page.views.pop()
@@ -640,5 +734,5 @@ class bilimusicApp:
             self.otherLibLicenseText = '加载失败，请打开同目录下的 LICENSE_OTHER_LIBRARY 文件查看第三方库的许可证信息。'
 if __name__ == '__main__':
     # GUIForm = bilimusicApp()
-    ft.app(target=bilimusicApp, assets_dir='bilimusic_data')
+    ft.app(target=bilimusicApp)
     #bv = input("bvid: ") # Input Bvid.
